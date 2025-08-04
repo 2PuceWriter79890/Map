@@ -29,28 +29,28 @@ void registerMapInfoCommand() {
         }
 
         auto* player = static_cast<Player*>(entity);
-        PlayerInventory& inventory = player->getInventory();
+        auto& inventory = player->getInventory();
         ItemStack const& heldItem = inventory.getSelectedItem();
         
-        if (!heldItem.isMap()) {
+        if (heldItem.isNull() || !heldItem.isMap()) {
             output.error("Please hold a map!");
             return;
         }
 
-        CompoundTag const* nbt = heldItem.getUserData();
+        auto* nbt = heldItem.getNbt(); 
         if (!nbt) {
             output.error("Failed to get map NBT data!");
             return;
         }
 
-        ActorUniqueID mapId = MapItem::getMapId(nbt);
-        Level* level = ll::service::getLevel().get();
+        auto mapId = MapItem::getMapId(*nbt);
+        auto* level = ll::service::getLevel().get();
         if (!level) {
             output.error("Failed to get level!");
             return;
         }
 
-        MapItemSavedData* mapData = level->getMapSavedData().fetchSavedData(mapId);
+        auto* mapData = level->getMapSavedData().get(mapId);  // 使用get()而不是fetchSavedData()
         if (!mapData) {
             output.error("Failed to get map data!");
             return;
