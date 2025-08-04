@@ -9,6 +9,10 @@
 #include "mc/server/commands/CommandOrigin.h"
 #include "mc/server/commands/CommandOutput.h"
 #include "mc/nbt/CompoundTag.h"
+#include "mc/world/actor/Actor.h"
+#include "mc/world/actor/player/Player.h"
+#include "mc/world/actor/player/Inventory.h"
+#include "mc/world/level/Level.h"
 
 void registerMapInfoCommand() {
     auto& cmd = ll::command::CommandRegistrar::getInstance().getOrCreateCommand(
@@ -25,28 +29,28 @@ void registerMapInfoCommand() {
         }
 
         auto* player = static_cast<Player*>(entity);
-        auto& inventory = player->getInventory();
-        auto const& heldItem = inventory.getSelectedItem();
+        PlayerInventory& inventory = player->getInventory();
+        ItemStack const& heldItem = inventory.getSelectedItem();
         
-        if (heldItem.getId() != ItemType::Map) {
+        if (!heldItem.isMap()) {
             output.error("Please hold a map!");
             return;
         }
 
-        auto* nbt = heldItem.getUserData();
+        CompoundTag const* nbt = heldItem.getUserData();
         if (!nbt) {
             output.error("Failed to get map NBT data!");
             return;
         }
 
-        auto mapId = MapItem::getMapId(nbt);
-        auto* level = ll::service::getLevel().get();
+        ActorUniqueID mapId = MapItem::getMapId(nbt);
+        Level* level = ll::service::getLevel().get();
         if (!level) {
             output.error("Failed to get level!");
             return;
         }
 
-        auto* mapData = level->getMapSavedData().fetchSavedData(mapId);
+        MapItemSavedData* mapData = level->getMapSavedData().fetchSavedData(mapId);
         if (!mapData) {
             output.error("Failed to get map data!");
             return;
@@ -57,7 +61,7 @@ void registerMapInfoCommand() {
         output.success("Scale: " + std::to_string(mapData->getScale()));
         output.success("Locked: " + std::string(heldItem.isLocked() ? "Yes" : "No"));
         output.success("Center: X=" + std::to_string(mapData->getCenterX()) + 
-                     ", Z=" + std::to_string(mapData->getCenterZ()));
+                      ", Z=" + std::to_string(mapData->getCenterZ()));
     });
 }
 
