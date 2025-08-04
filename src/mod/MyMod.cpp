@@ -4,48 +4,58 @@
 #include "ll/api/io/Logger.h"
 #include "ll/api/service/Bedrock.h"
 #include "mc/world/item/MapItem.h"
+#include "mc/world/item/ItemStack.h"
 #include "mc/world/level/saveddata/maps/MapItemSavedData.h"
+#include "mc/server/commands/CommandOrigin.h"
+#include "mc/server/commands/CommandOutput.h"
+#include "mc/nbt/CompoundTag.h"
 
 void registerMapInfoCommand() {
     auto& cmd = ll::command::CommandRegistrar::getInstance().getOrCreateCommand(
         "getmapinfo",
-        "获取手持地图信息",
+        "Get held map info", 
         CommandPermissionLevel::Any
     );
 
-    cmd.overload().execute<[&](CommandOrigin const& origin, CommandOutput& output) {
-        if (auto* player = origin.getPlayer()) {
-            ItemStack* heldItem = player->getHandSlot();
+    cmd.overload().execute([](CommandOrigin const& origin, CommandOutput& output) {
+        if (auto* player = origin.getPlayer(); player) {
+            ItemStack const& heldItem = player->getHandSlot();
             
-            if (!heldItem || !heldItem->isMap()) {
-                output.error("请手持一张地图！");
-                return 0;
+            if (!heldItem.isMap()) {
+                output.error("Please hold a map!");
+                return;
             }
 
-            auto mapId = MapItem::getMapId(*heldItem);
-            
-            auto* mapData = ll::service::getLevel()->getMapSavedData().fetchSavedData(mapId);
+            auto* nbt = heldItem.getNbt();
+            if (!nbt) {
+                output.error("Failed to get map NBT data!");
+                return;
+            }
+
+            auto mapId = MapItem::getMapId(nbt);
+            auto& level = ll::service::getLevel();
+            auto* mapData = level->getMapSavedData().fetchSavedData(mapId);
             
             if (!mapData) {
-                output.error("无法获取地图数据！");
-                return 0;
+                output.error("Failed to get map data!");
+                return;
             }
 
-            output.success("=== 地图信息 ===");
-            output.success(fmt::format("地图ID: {}", mapId));
-            output.success(fmt::format("地图等级(比例尺): {}", mapData->getScale()));
-            output.success(fmt::format("是否上锁: {}", heldItem->isLocked() ? "是" : "否"));
-            output.success(fmt::format("地图中心坐标: X={}, Z={}", mapData->getCenterX(), mapData->getCenterZ()));
+            output.success("=== Map Info ===");
+            output.success("Map ID: " + std::to_string(mapId.id));
+            output.success("Scale: " + std::to_string(mapData->getScale()));
+            output.success("Locked: " + std::string(heldItem.isLocked() ? "Yes" : "No"));
+            output.success("Center: X=" + std::to_string(mapData->getCenterX()) + 
+                         ", Z=" + std::to_string(mapData->getCenterZ()));
             
         } else {
-            output.error("只有玩家可以执行此命令");
+            output.error("Only players can use this command");
         }
-        return 0;
-    }>();
+    });
 }
 
 void plugin_init() {
-    static ll::io::Logger logger("MapInfo");
+    static auto logger = ll::Logger("MapInfo");
     registerMapInfoCommand();
-    logger.info("地图信息命令已注册 - /getmapinfo");
+    logger.info("Map info command registered - /getmapinfo");
 }
