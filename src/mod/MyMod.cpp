@@ -1,132 +1,96 @@
 #include "mod/MyMod.h"
 
-#include "ll/api/io/Logger.h"
 #include "ll/api/command/CommandRegistrar.h"
-#include "mc/server/commands/CommandOrigin.h"
-#include "mc/server/commands/CommandOutput.h"
-#include "mc/world/actor/player/Player.h"
-#include "mc/world/level/Level.h"
+#include "mc/nbt/CompoundTag.h"
+#include "gmlib/mc/world/Level.h"
 #include "gmlib/mc/world/actor/OfflinePlayer.h"
+#include "gmlib/mc/world/actor/Player.h"
 
 namespace {
 
-auto& logger = ll::Logger::createLogger("ItemCleaner");
-
-// 清理单个离线玩家的指定物品
-void cleanOfflinePlayer(gmlib::OfflinePlayer& offlinePlayer, std::string_view itemId, int& totalRemoved) {
-    auto nbt = offlinePlayer.getNbt();
-    if (!nbt) {
-        logger.debug("Player {} has no NBT data", offlinePlayer.getServerId());
-        return;
-    }
-
-    auto& playerData = nbt.value();
+// 清理单个玩家的物品
+void cleanPlayerItems(gmlib::GMPlayer& player, const std::string& itemId) {
     int removed = 0;
-    std::string playerName = playerData.getString("Name", offlinePlayer.getServerId());
-
-    // 清理背包
-    if (playerData.contains("Inventory")) {
-        auto& inventoryList = playerData.getList("Inventory");
-        for (int i = inventoryList.size() - 1; i >= 0; --i) {
-            auto* itemTag = inventoryList.getCompound(i);
-            if (itemTag && itemTag->getString("id") == itemId) {
-                removed += itemTag->getByte("Count", 1);
-                inventoryList.remove(i);
-            }
+    
+    // 获取玩家所有物品
+    auto items = player.getItems(itemId);
+    
+    // 清理物品
+    for (auto& itemRef : items) {
+        if (itemRef && itemRef->getTypeName() == itemId) {
+            removed += itemRef->getCount();
+            itemRef->setCount(0);
         }
     }
-
-    // 清理末影箱
-    if (playerData.contains("EnderItems")) {
-        auto& enderList = playerData.getList("EnderItems");
-        for (int i = enderList.size() - 1; i >= 0; --i) {
-            auto* itemTag = enderList.getCompound(i);
-            if (itemTag && itemTag->getString("id") == itemId) {
-                removed += itemTag->getByte("Count", 1);
-                enderList.remove(i);
-            }
-        }
-    }
-
+    
     if (removed > 0) {
-        if (!offlinePlayer.setNbt(playerData)) {
-            logger.error("Failed to save NBT data for {}", playerName);
-            return;
-        }
-        totalRemoved += removed;
-        logger.info("Removed {} {} from {}", removed, itemId, playerName);
+        player.sendText(fmt::format("Removed {} {} from your inventory", removed, itemId));
     }
 }
 
-// 清理单个在线玩家的指定物品
-void cleanOnlinePlayer(Player* player, std::string_view itemId, int& totalRemoved) {
-    int removed = 0;
-    std::string playerName = player->getName();
-
-    // 清理背包
-    auto& inventory = player->getInventory();
-    for (int i = 0; i < inventory.getSize(); ++i) {
-        auto item = inventory.getItem(i);
-        if (item && item->getTypeName() == itemId) {
-            removed += item->getCount();
-            inventory.removeItem(i, item->getCount());
-        }
-    }
-
-    // 清理末影箱
-    auto& enderChest = player->getEnderChestContainer();
-    for (int i = 0; i < enderChest.getSize(); ++i) {
-        auto item = enderChest.getItem(i);
-        if (item && item->getTypeName() == itemId) {
-            removed += item->getCount();
-            enderChest.removeItem(i, item->getCount());
-        }
-    }
-
-    if (removed > 0) {
-        totalRemoved += removed;
-        logger.info("Removed {} {} from online player {}", removed, itemId, playerName);
-        player->sendMessage(fmt::format("§cRemoved {} {} from your inventory", removed, itemId));
-    }
-}
-
-// 清理所有玩家的指定物品
-void cleanAllPlayers(std::string_view itemId, CommandOutput& output) {
-    logger.info("Starting cleanup of {} from all players...", itemId);
-    output.success("Starting cleanup process...");
-
+// 清理所有玩家(在线和离线)
+void cleanAllPlayersItems(const std::string& itemId) {
     int totalRemoved = 0;
-    auto startTime = std::chrono::steady_clock::now();
-
-    // 处理在线玩家
-    auto onlinePlayers = Level::getAllPlayers();
-    logger.debug("Processing {} online players", onlinePlayers.size());
+    
+    // 1. 处理在线玩家
+    auto onlinePlayers = gmlib::GMLevel::getInstance()->getAllPlayers();
     for (auto player : onlinePlayers) {
-        cleanOnlinePlayer(player, itemId, totalRemoved);
+        cleanPlayerItems(*player, itemId);
     }
-
-    // 处理离线玩家
-    auto offlinePlayers = gmlib::OfflinePlayer::getAllOfflinePlayers();
-    logger.debug("Processing {} offline players", offlinePlayers.size());
-    for (auto& offlinePlayer : offlinePlayers) {
-        cleanOfflinePlayer(offlinePlayer, itemId, totalRemoved);
-    }
-
-    auto duration = std::chrono::steady_clock::now() - startTime;
-    double timeTaken = std::chrono::duration<double>(duration).count();
     
-    logger.info("Cleanup completed. Total removed: {} {} (took {:.2f}s)",
-               totalRemoved, itemId, timeTaken);
+    // 2. 处理离线玩家
+    auto level = gmlib::GMLevel::getInstance();
+    if (!level) return;
     
-    output.success(fmt::format("Removed total {} {} from all players (took {:.2f}s)", 
-                             totalRemoved, itemId, timeTaken));
-
-    // 向在线玩家广播结果
-    if (totalRemoved > 0) {
-        auto msg = fmt::format("§aCleaned {} {} from all players", totalRemoved, itemId);
-        for (auto player : Level::getAllPlayers()) {
-            player->sendMessage(msg);
+    // 获取所有玩家数据文件
+    auto playerDataPath = "./world/playerdata/";
+    auto files = ll::file::getAllFiles(playerDataPath, false);
+    
+    for (const auto& file : files) {
+        if (file.ends_with(".dat")) {
+            try {
+                // 读取玩家数据
+                auto uuid = file.substr(0, file.size() - 4);
+                auto playerData = gmlib::GMPlayer::getOfflinePlayerData(uuid);
+                
+                if (!playerData) continue;
+                
+                // 处理背包物品
+                if (playerData->contains("Inventory")) {
+                    auto& inventory = playerData->getList("Inventory");
+                    for (int i = inventory.size() - 1; i >= 0; --i) {
+                        auto item = inventory.getCompound(i);
+                        if (item.getString("id") == itemId) {
+                            totalRemoved += item.getByte("Count", 1);
+                            inventory.remove(i);
+                        }
+                    }
+                }
+                
+                // 处理末影箱物品
+                if (playerData->contains("EnderItems")) {
+                    auto& enderItems = playerData->getList("EnderItems");
+                    for (int i = enderItems.size() - 1; i >= 0; --i) {
+                        auto item = enderItems.getCompound(i);
+                        if (item.getString("id") == itemId) {
+                            totalRemoved += item.getByte("Count", 1);
+                            enderItems.remove(i);
+                        }
+                    }
+                }
+                
+                // 保存修改后的数据
+                gmlib::GMPlayer::saveOfflinePlayerData(uuid, *playerData);
+                
+            } catch (...) {
+            }
         }
+    }
+    
+    // 广播清理结果
+    if (totalRemoved > 0) {
+        auto msg = fmt::format("Cleaned total {} {} from all players", totalRemoved, itemId);
+        level->broadcast(msg);
     }
 }
 
@@ -137,24 +101,17 @@ void registerCommand() {
         "Remove specified item from all players' inventories",
         CommandPermissionLevel::GameDirectors
     );
-
+    
     cmd.overload<std::string>()
         .required("itemId")
         .execute([](CommandOrigin const& origin, CommandOutput& output, std::string const& itemId) {
-            logger.info("Command executed by {} to clean {}", 
-                      origin.getName(), itemId);
-            
-            // 直接同步执行清理操作
-            cleanAllPlayers(itemId, output);
+            cleanAllPlayersItems(itemId);
+            output.success(fmt::format("Started cleaning {} from all players", itemId));
         });
 }
 
 } // namespace
 
-// 插件入口
 void PluginInit() {
-    logger.setLevel(ll::LogLevel::Debug); // 设置日志级别
-    logger.info("ItemCleaner plugin loaded");
-
     registerCommand();
 }
