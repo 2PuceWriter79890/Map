@@ -1,7 +1,5 @@
 #include "mod/MyMod.h"
-
-#include "MyMod.h"
-#include "config.h"
+#include "mod/config.h"
 
 #include "ll/api/event/EventBus.h"
 #include "ll/api/event/player/PlayerDieEvent.h"
