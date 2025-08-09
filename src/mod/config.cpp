@@ -1,9 +1,10 @@
 #include "mod/config.h"
 
 #include <ll/api/mod/NativeMod.h>
+
 #include <fstream>
 #include <iomanip>
-#include "mod/json.hpp"
+#include <nlohmann/json.hpp>
 
 using json = nlohmann::json;
 
