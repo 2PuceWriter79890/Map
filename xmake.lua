@@ -26,7 +26,7 @@ option("target_type")
     set_values("server", "client")
 option_end()
 
-target("Map") -- Change this to your mod name.
+target("TestMod") -- Change this to your mod name.
     add_packages("gmlib")
     add_rules("@levibuildscript/linkrule")
     add_rules("@levibuildscript/modpacker")

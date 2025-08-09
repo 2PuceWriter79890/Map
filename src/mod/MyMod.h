@@ -1,33 +1,40 @@
 #pragma once
 
 #include "ll/api/mod/NativeMod.h"
+#include "ll/api/event/Listener.h"
+
+#include <map>
+#include <string>
+#include <memory>
+#include <utility> // for std::pair
 
 namespace my_mod {
 
 class MyMod {
-
 public:
     static MyMod& getInstance();
 
-    MyMod() : mSelf(*ll::mod::NativeMod::current()) {}
+    MyMod(const MyMod&) = delete;
+    MyMod(MyMod&&)      = delete;
+    MyMod& operator=(const MyMod&) = delete;
+    MyMod& operator=(MyMod&&) = delete;
 
     [[nodiscard]] ll::mod::NativeMod& getSelf() const { return mSelf; }
 
-    /// @return True if the mod is loaded successfully.
     bool load();
-
-    /// @return True if the mod is enabled successfully.
     bool enable();
-
-    /// @return True if the mod is disabled successfully.
     bool disable();
 
-    // TODO: Implement this method if you need to unload the mod.
-    // /// @return True if the mod is unloaded successfully.
-    // bool unload();
-
 private:
+    MyMod() : mSelf(*ll::mod::NativeMod::current()) {} 
+
     ll::mod::NativeMod& mSelf;
+
+    ll::event::ListenerPtr mPlayerDieListener;
+    ll::event::ListenerPtr mPlayerRespawnListener;
+
+    // 修改: 同时储存等级(int)和经验条进度(float)
+    std::map<std::string, std::pair<int, float>> mStoredExperience;
 };
 
-} // namespace my_mod
+}

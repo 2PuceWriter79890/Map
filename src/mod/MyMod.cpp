@@ -5,6 +5,8 @@
 #include "ll/api/event/player/PlayerDieEvent.h"
 #include "ll/api/event/player/PlayerRespawnEvent.h"
 #include "mc/world/actor/player/Player.h"
+#include "mc/world/actor/attribute/AttributeInstance.h"
+#include "mc/world/actor/attribute/SharedAttributes.h"
 
 namespace my_mod {
 
@@ -26,11 +28,16 @@ bool MyMod::enable() {
             auto& player = event.self();
             
             if (gAllowedPlayers.count(player.getRealName())) {
-                int totalXp = player.getTotalExperience();
-                mStoredExperience[player.getUuid().asString()] = totalXp;
-                player.addExperience(-totalXp);
-                player.addLevels(-player.getPlayerLevel());
-                player.setExperience(0);
+                auto& levelAttribute = player.getAttribute(SharedAttributes::PLAYER_LEVEL);
+                auto& expAttribute = player.getAttribute(SharedAttributes::PLAYER_EXPERIENCE_AND_LEVEL);
+
+                int level = static_cast<int>(levelAttribute.getCurrentValue());
+                float progress = expAttribute.getCurrentValue();
+
+                mStoredExperience[player.getUuid().asString()] = {level, progress};
+
+                levelAttribute.setCurrentValue(0);
+                expAttribute.setCurrentValue(0.0f);
             }
             return true;
         }
@@ -43,28 +50,7 @@ bool MyMod::enable() {
 
             auto it = mStoredExperience.find(uuidStr);
             if (it != mStoredExperience.end()) {
-                player.addExperience(it->second);
-                mStoredExperience.erase(it);
-            }
-            return true;
-        }
-    );
+                const auto& [level, progress] = it->second;
 
-    eventBus.addListener(mPlayerDieListener);
-    eventBus.addListener(mPlayerRespawnListener);
-    
-    return true;
-}
-
-bool MyMod::disable() {
-    auto& eventBus = ll::event::EventBus::getInstance();
-
-    eventBus.removeListener(mPlayerDieListener);
-    eventBus.removeListener(mPlayerRespawnListener);
-
-    mStoredExperience.clear();
-
-    return true;
-}
-
-}
+                player.addLevels(level);
+                player.getAttribute(SharedAttributes::PLAYER_EXPERIENCE_AND_
