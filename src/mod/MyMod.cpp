@@ -2,12 +2,15 @@
 
 #include <ll/api/mod/NativeMod.h>
 #include <ll/api/event/EventBus.h>
+#include <ll/api/event/Listener.h>
 #include <ll/api/event/player/PlayerDieEvent.h>
 #include <ll/api/event/player/PlayerRespawnEvent.h>
 
 #include <mc/world/actor/player/Player.h>
 #include <mc/deps/core/math/Vec3.h>
 #include <mc/nbt/CompoundTag.h>
+#include <mc/nbt/FloatTag.h>
+#include <mc/nbt/IntTag.h>
 
 #include <map>
 #include <string>
@@ -22,7 +25,7 @@ static const std::set<std::string> allowedPlayers = {
 static std::map<std::string, std::unique_ptr<CompoundTag>> deathInfo;
 
 void plugin_entry(ll::mod::NativeMod& self) {
-    ll::event::EventBus::getInstance().subscribe<ll::event::PlayerDieEvent>(
+    auto playerDieListener = ll::event::Listener<ll::event::PlayerDieEvent>::create(
         [&](ll::event::PlayerDieEvent& event) {
             auto& player = event.self();
             
@@ -32,18 +35,20 @@ void plugin_entry(ll::mod::NativeMod& self) {
                 auto dimensionId = player.getDimensionId();
 
                 auto tag = std::make_unique<CompoundTag>();
-                tag->putFloat("x", position.x);
-                tag->putFloat("y", position.y);
-                tag->putFloat("z", position.z);
-                tag->putInt("dim", dimensionId.id);
+                
+                tag->mTags.emplace("x", FloatTag::create(position.x));
+                tag->mTags.emplace("y", FloatTag::create(position.y));
+                tag->mTags.emplace("z", FloatTag::create(position.z));
+                tag->mTags.emplace("dim", IntTag::create(dimensionId.id));
 
                 deathInfo[uuidStr] = std::move(tag);
             }
             return true;
         }
     );
+    ll::event::EventBus::getInstance().addListener(playerDieListener);
 
-    ll::event::EventBus::getInstance().subscribe<ll::event::PlayerRespawnEvent>(
+    auto playerRespawnListener = ll::event::Listener<ll::event::PlayerRespawnEvent>::create(
         [&](ll::event::PlayerRespawnEvent& event) {
             auto& player = event.self();
             auto uuidStr = player.getUuid().asString();
@@ -51,14 +56,16 @@ void plugin_entry(ll::mod::NativeMod& self) {
             auto it = deathInfo.find(uuidStr);
             if (it != deathInfo.end()) {
                 auto const& tag = it->second;
+
                 Vec3 savedPos(tag->getFloat("x"), tag->getFloat("y"), tag->getFloat("z"));
                 DimensionId savedDim(tag->getInt("dim"));
                 
-                player.teleport(Vec3(savedPos.x, savedPos.y + 0.5, savedPos.z), savedDim);
+                player.teleportTo(Vec3(savedPos.x, savedPos.y + 0.5, savedPos.z), true, 0, 0, false);
 
                 deathInfo.erase(it);
             }
             return true;
         }
     );
+    ll::event::EventBus::getInstance().addListener(playerRespawnListener);
 }
