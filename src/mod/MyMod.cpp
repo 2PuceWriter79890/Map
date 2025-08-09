@@ -2,6 +2,7 @@
 #include "mod/config.h"
 
 #include "ll/api/event/EventBus.h"
+#include "ll/api/event/EventId.h"
 #include "ll/api/event/player/PlayerDieEvent.h"
 #include "ll/api/event/player/PlayerRespawnEvent.h"
 #include "mc/world/actor/player/Player.h"
@@ -28,16 +29,14 @@ bool MyMod::enable() {
             auto& player = event.self();
             
             if (gAllowedPlayers.count(player.getRealName())) {
-                auto& levelAttribute = player.getAttribute(Player::LEVEL);
-                auto& expAttribute = player.getAttribute(Player::EXPERIENCE);
+                auto const& levelAttribute = player.getAttribute(Player::LEVEL());
+                auto const& expAttribute = player.getAttribute(Player::EXPERIENCE());
 
                 int level = static_cast<int>(levelAttribute.mCurrentValue);
                 float progress = expAttribute.mCurrentValue;
 
                 mStoredExperience[player.getUuid().asString()] = {level, progress};
 
-                levelAttribute.mCurrentValue = 0;
-                expAttribute.mCurrentValue = 0.0f;
             }
             return true;
         }
@@ -53,7 +52,8 @@ bool MyMod::enable() {
                 const auto& [level, progress] = it->second;
 
                 player.addLevels(level);
-                player.getAttribute(Player::EXPERIENCE).mCurrentValue = progress;
+                auto& expAttribute = const_cast<AttributeInstance&>(player.getAttribute(Player::EXPERIENCE()));
+                expAttribute.mCurrentValue = progress;
                 
                 mStoredExperience.erase(it);
             }
@@ -61,8 +61,8 @@ bool MyMod::enable() {
         }
     );
 
-    eventBus.addListener(mPlayerDieListener);
-    eventBus.addListener(mPlayerRespawnListener);
+    eventBus.addListener(mPlayerDieListener, ll::event::getEventId<ll::event::PlayerDieEvent>);
+    eventBus.addListener(mPlayerRespawnListener, ll::event::getEventId<ll::event::PlayerRespawnEvent>);
     
     return true;
 }

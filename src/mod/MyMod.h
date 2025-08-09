@@ -6,7 +6,7 @@
 #include <map>
 #include <string>
 #include <memory>
-#include <utility> // for std::pair
+#include <utility>
 
 namespace my_mod {
 
@@ -33,7 +33,6 @@ private:
     ll::event::ListenerPtr mPlayerDieListener;
     ll::event::ListenerPtr mPlayerRespawnListener;
 
-    // 修改: 同时储存等级(int)和经验条进度(float)
     std::map<std::string, std::pair<int, float>> mStoredExperience;
 };
 
