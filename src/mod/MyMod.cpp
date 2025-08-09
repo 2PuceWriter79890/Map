@@ -1,6 +1,6 @@
 #include "mod/MyMod.h"
 
-#include <ll/api/plugin/NativePlugin.h>
+#include <ll/api/mod/NativeMod.h>
 #include <ll/api/event/EventBus.h>
 #include <ll/api/event/player/PlayerDieEvent.h>
 #include <ll/api/event/player/PlayerRespawnEvent.h>
@@ -21,7 +21,7 @@ static const std::set<std::string> allowedPlayers = {
 
 static std::map<std::string, std::unique_ptr<CompoundTag>> deathInfo;
 
-void plugin_entry(ll::plugin::NativePlugin& self) {
+void plugin_entry(ll::mod::NativeMod& self) {
     ll::event::EventBus::getInstance().subscribe<ll::event::PlayerDieEvent>(
         [&](ll::event::PlayerDieEvent& event) {
             auto& player = event.self();
