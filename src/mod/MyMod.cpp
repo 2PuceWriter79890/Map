@@ -5,8 +5,8 @@
 #include "ll/api/event/player/PlayerDieEvent.h"
 #include "ll/api/event/player/PlayerRespawnEvent.h"
 #include "mc/world/actor/player/Player.h"
-#include "mc/world/actor/attribute/AttributeInstance.h"
-#include "mc/world/actor/attribute/SharedAttributes.h"
+#include "mc/world/attribute/AttributeInstance.h"
+#include "mc/world/attribute/SharedAttributes.h"
 
 namespace my_mod {
 
@@ -28,16 +28,16 @@ bool MyMod::enable() {
             auto& player = event.self();
             
             if (gAllowedPlayers.count(player.getRealName())) {
-                auto& levelAttribute = player.getAttribute(SharedAttributes::PLAYER_LEVEL);
-                auto& expAttribute = player.getAttribute(SharedAttributes::PLAYER_EXPERIENCE_AND_LEVEL);
+                auto& levelAttribute = player.getAttribute(Player::LEVEL);
+                auto& expAttribute = player.getAttribute(Player::EXPERIENCE);
 
-                int level = static_cast<int>(levelAttribute.getCurrentValue());
-                float progress = expAttribute.getCurrentValue();
+                int level = static_cast<int>(levelAttribute.mCurrentValue);
+                float progress = expAttribute.mCurrentValue;
 
                 mStoredExperience[player.getUuid().asString()] = {level, progress};
 
-                levelAttribute.setCurrentValue(0);
-                expAttribute.setCurrentValue(0.0f);
+                levelAttribute.mCurrentValue = 0;
+                expAttribute.mCurrentValue = 0.0f;
             }
             return true;
         }
@@ -53,4 +53,41 @@ bool MyMod::enable() {
                 const auto& [level, progress] = it->second;
 
                 player.addLevels(level);
-                player.getAttribute(SharedAttributes::PLAYER_EXPERIENCE_AND_
+                player.getAttribute(Player::EXPERIENCE).mCurrentValue = progress;
+                
+                mStoredExperience.erase(it);
+            }
+            return true;
+        }
+    );
+
+    eventBus.addListener(mPlayerDieListener);
+    eventBus.addListener(mPlayerRespawnListener);
+    
+    return true;
+}
+
+bool MyMod::disable() {
+    auto& eventBus = ll::event::EventBus::getInstance();
+
+    eventBus.removeListener(mPlayerDieListener);
+    eventBus.removeListener(mPlayerRespawnListener);
+
+    mStoredExperience.clear();
+
+    return true;
+}
+
+} // namespace my_mod
+
+extern "C" {
+    _declspec(dllexport) bool ll_load() { 
+        return my_mod::MyMod::getInstance().load();
+    }
+    _declspec(dllexport) bool ll_enable() { 
+        return my_mod::MyMod::getInstance().enable();
+    }
+    _declspec(dllexport) bool ll_disable() { 
+        return my_mod::MyMod::getInstance().disable();
+    }
+}
