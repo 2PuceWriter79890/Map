@@ -3,7 +3,7 @@
 #include <ll/api/mod/NativeMod.h>
 #include <fstream>
 #include <iomanip>
-#include "json.hpp"
+#include "mod/json.hpp"
 
 using json = nlohmann::json;
 
