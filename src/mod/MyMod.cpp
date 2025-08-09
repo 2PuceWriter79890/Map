@@ -17,11 +17,12 @@ MyMod& MyMod::getInstance() {
 }
 
 bool MyMod::load() {
-    loadAndCreateDefaultConfig(getSelf());
     return true;
 }
 
 bool MyMod::enable() {
+    loadAndCreateDefaultConfig(getSelf());
+
     auto& eventBus = ll::event::EventBus::getInstance();
 
     mPlayerDieListener = ll::event::Listener<ll::event::PlayerDieEvent>::create(
@@ -37,6 +38,8 @@ bool MyMod::enable() {
 
                 mStoredExperience[player.getUuid().asString()] = {level, progress};
 
+                const_cast<AttributeInstance&>(levelAttribute).mCurrentValue = 0;
+                const_cast<AttributeInstance&>(expAttribute).mCurrentValue = 0.0f;
             }
             return true;
         }
@@ -79,6 +82,9 @@ bool MyMod::disable() {
 }
 
 } // namespace my_mod
+
+
+#include "MyMod.h"
 
 extern "C" {
     _declspec(dllexport) bool ll_load() { 
