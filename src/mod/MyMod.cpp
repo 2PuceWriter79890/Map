@@ -1,5 +1,4 @@
 #include "mod/MyMod.h"
-#include "mod/config.h"
 
 #include "ll/api/event/EventBus.h"
 #include "ll/api/event/EventId.h"
@@ -8,8 +7,6 @@
 #include "mc/world/actor/player/Player.h"
 #include "mc/world/attribute/AttributeInstance.h"
 #include "mc/world/attribute/SharedAttributes.h"
-
-#include <cstdio> // printf
 
 namespace my_mod {
 
@@ -23,26 +20,28 @@ bool MyMod::load() {
 }
 
 bool MyMod::enable() {
-    loadAndCreateDefaultConfig(getSelf());
-    
     auto& eventBus = ll::event::EventBus::getInstance();
+    auto& logger = getLogger();
+
+    logger.info("KeepExperienceForAll enabled. Registering listeners...");
 
     mPlayerDieListener = ll::event::Listener<ll::event::PlayerDieEvent>::create(
         [this](ll::event::PlayerDieEvent& event) {
             auto& player = event.self();
             
-            if (gAllowedPlayers.count(player.getRealName())) {
-                auto const& levelAttribute = player.getAttribute(Player::LEVEL());
-                auto const& expAttribute = player.getAttribute(Player::EXPERIENCE());
+            auto const& levelAttribute = player.getAttribute(Player::LEVEL());
+            auto const& expAttribute = player.getAttribute(Player::EXPERIENCE());
 
-                int level = static_cast<int>(levelAttribute.mCurrentValue);
-                float progress = expAttribute.mCurrentValue;
+            int level = static_cast<int>(levelAttribute.mCurrentValue);
+            float progress = expAttribute.mCurrentValue;
 
-                mStoredExperience[player.getUuid().asString()] = {level, progress};
+            mStoredExperience[player.getUuid().asString()] = {level, progress};
 
-                const_cast<AttributeInstance&>(levelAttribute).mCurrentValue = 0;
-                const_cast<AttributeInstance&>(expAttribute).mCurrentValue = 0.0f;
-            }
+            const_cast<AttributeInstance&>(levelAttribute).mCurrentValue = 0;
+            const_cast<AttributeInstance&>(expAttribute).mCurrentValue = 0.0f;
+
+            getLogger().info("Stored L{} ({:.2f}%) for player {}.", level, progress * 100, player.getRealName());
+            
             return true;
         }
     );
@@ -60,6 +59,7 @@ bool MyMod::enable() {
                 auto& expAttribute = const_cast<AttributeInstance&>(player.getAttribute(Player::EXPERIENCE()));
                 expAttribute.mCurrentValue = progress;
                 
+                getLogger().info("Restored L{} ({:.2f}%) for player {}.", level, progress * 100, player.getRealName());
                 mStoredExperience.erase(it);
             }
             return true;
@@ -79,6 +79,7 @@ bool MyMod::disable() {
     eventBus.removeListener(mPlayerRespawnListener);
 
     mStoredExperience.clear();
+    getLogger().info("KeepExperienceForAll disabled.");
 
     return true;
 }
@@ -86,19 +87,14 @@ bool MyMod::disable() {
 } // namespace my_mod
 
 
-#include "MyMod.h"
-
 extern "C" {
-    _declspec(dllexport) bool ll_load() {
-        printf("[KeepExperience DEBUG] ll_load CALLED!\n");
+    _declspec(dllexport) bool ll_load() { 
         return my_mod::MyMod::getInstance().load();
     }
-    _declspec(dllexport) bool ll_enable() {
-        printf("[KeepExperience DEBUG] ll_enable CALLED!\n");
+    _declspec(dllexport) bool ll_enable() { 
         return my_mod::MyMod::getInstance().enable();
     }
-    _declspec(dllexport) bool ll_disable() {
-        printf("[KeepExperience DEBUG] ll_disable CALLED!\n");
+    _declspec(dllexport) bool ll_disable() { 
         return my_mod::MyMod::getInstance().disable();
     }
 }
