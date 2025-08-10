@@ -1,23 +1,22 @@
 {
     "format_version": 3,
     "format_uuid": "289f771f-2c9a-4d73-9f3f-8492495a924d",
-    "tooth": "example.com/my-user/my-mod",
-    "version": "0.0.0",
+    "tooth": "github.com/2PuceWriter79890/RetainXP",
+    "version": "1.0.0",
     "info": {
-        "name": "RetainEXP",
+        "name": "RetainXP",
         "description": "死亡保留经验值",
         "tags": [
             "platform:levilamina",
             "type:mod"
-        ],
-        "avatar_url": "https://example.com/my-mod/avatar.png"
+        ]
     },
     "variants": [
         {
             "label": "",
             "platform": "win-x64",
             "dependencies": {
-                "github.com/LiteLDev/LeviLamina": "Required LeviLamina version range"
+                "github.com/LiteLDev/LeviLamina": "1.4.x"
             },
             "assets": [
                 {
@@ -28,8 +27,8 @@
                     "placements": [
                         {
                             "type": "dir",
-                            "src": "my-mod/",
-                            "dest": "plugins/my-mod/"
+                            "src": "RetainXP/",
+                            "dest": "plugins/RetainXP/"
                         }
                     ]
                 }

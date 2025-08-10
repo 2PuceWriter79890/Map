@@ -1,6 +1,7 @@
-#include "mod/MyMod.h"
-
+#include "ll/api/mod/NativeMod.h"
+#include "ll/api/mod/RegisterHelper.h"
 #include "ll/api/event/EventBus.h"
+#include "ll/api/event/Listener.h"
 #include "ll/api/event/EventId.h"
 #include "ll/api/event/player/PlayerDieEvent.h"
 #include "ll/api/event/player/PlayerRespawnEvent.h"
@@ -8,93 +9,112 @@
 #include "mc/world/attribute/AttributeInstance.h"
 #include "mc/world/attribute/SharedAttributes.h"
 
+#include <map>
+#include <string>
+#include <memory>
+#include <utility>
+
 namespace my_mod {
 
-MyMod& MyMod::getInstance() {
-    static MyMod instance;
-    return instance;
+static ll::mod::NativeMod* gSelf = nullptr;
+static std::map<std::string, int> gStoredTotalExperience;
+
+int calculateXpForLevel(int level) {
+    if (level >= 32) {
+        return static_cast<int>(4.5 * level * level - 162.5 * level + 2220);
+    }
+    if (level >= 17) {
+        return static_cast<int>(2.5 * level * level - 40.5 * level + 360);
+    }
+    return level * level + 6 * level;
 }
 
-bool MyMod::load() {
-    return true;
-}
+void onPlayerDie(ll::event::PlayerDieEvent& event) {
+    if (!gSelf) return;
 
-bool MyMod::enable() {
-    auto& eventBus = ll::event::EventBus::getInstance();
-    auto& logger = getLogger();
-
-    logger.info("KeepExperienceForAll enabled. Registering listeners...");
-
-    mPlayerDieListener = ll::event::Listener<ll::event::PlayerDieEvent>::create(
-        [this](ll::event::PlayerDieEvent& event) {
-            auto& player = event.self();
-            
-            auto const& levelAttribute = player.getAttribute(Player::LEVEL());
-            auto const& expAttribute = player.getAttribute(Player::EXPERIENCE());
-
-            int level = static_cast<int>(levelAttribute.mCurrentValue);
-            float progress = expAttribute.mCurrentValue;
-
-            mStoredExperience[player.getUuid().asString()] = {level, progress};
-
-            const_cast<AttributeInstance&>(levelAttribute).mCurrentValue = 0;
-            const_cast<AttributeInstance&>(expAttribute).mCurrentValue = 0.0f;
-
-            getLogger().info("Stored L{} ({:.2f}%) for player {}.", level, progress * 100, player.getRealName());
-            
-            return true;
-        }
-    );
-
-    mPlayerRespawnListener = ll::event::Listener<ll::event::PlayerRespawnEvent>::create(
-        [this](ll::event::PlayerRespawnEvent& event) {
-            auto& player = event.self();
-            auto uuidStr = player.getUuid().asString();
-
-            auto it = mStoredExperience.find(uuidStr);
-            if (it != mStoredExperience.end()) {
-                const auto& [level, progress] = it->second;
-
-                player.addLevels(level);
-                auto& expAttribute = const_cast<AttributeInstance&>(player.getAttribute(Player::EXPERIENCE()));
-                expAttribute.mCurrentValue = progress;
-                
-                getLogger().info("Restored L{} ({:.2f}%) for player {}.", level, progress * 100, player.getRealName());
-                mStoredExperience.erase(it);
-            }
-            return true;
-        }
-    );
-
-    eventBus.addListener(mPlayerDieListener, ll::event::getEventId<ll::event::PlayerDieEvent>);
-    eventBus.addListener(mPlayerRespawnListener, ll::event::getEventId<ll::event::PlayerRespawnEvent>);
+    auto& player = event.self();
     
-    return true;
+    auto const& levelAttribute = player.getAttribute(Player::LEVEL());
+    auto const& expAttribute = player.getAttribute(Player::EXPERIENCE());
+
+    int level = static_cast<int>(levelAttribute.mCurrentValue);
+    float progress = expAttribute.mCurrentValue;
+
+    int xpFromLevels = calculateXpForLevel(level);
+    int xpInBar = static_cast<int>(progress * player.getXpNeededForNextLevel());
+    int totalXp = xpFromLevels + xpInBar;
+
+    gStoredTotalExperience[player.getUuid().asString()] = totalXp;
+
+    const_cast<AttributeInstance&>(levelAttribute).mCurrentValue = 0;
+    const_cast<AttributeInstance&>(expAttribute).mCurrentValue = 0.0f;
+
+    gSelf->getLogger().info("Stored {} total XP for player {}.", totalXp, player.getRealName());
 }
 
-bool MyMod::disable() {
-    auto& eventBus = ll::event::EventBus::getInstance();
+void onPlayerRespawn(ll::event::PlayerRespawnEvent& event) {
+    if (!gSelf) return;
 
-    eventBus.removeListener(mPlayerDieListener);
-    eventBus.removeListener(mPlayerRespawnListener);
+    auto& player = event.self();
+    auto uuidStr = player.getUuid().asString();
 
-    mStoredExperience.clear();
-    getLogger().info("KeepExperienceForAll disabled.");
+    auto it = gStoredTotalExperience.find(uuidStr);
+    if (it != gStoredTotalExperience.end()) {
+        int totalXpToRestore = it->second;
 
-    return true;
+        player.addExperience(totalXpToRestore);
+        
+        gSelf->getLogger().info("Restored {} total XP for player {}.", totalXpToRestore, player.getRealName());
+        gStoredTotalExperience.erase(it);
+    }
 }
+
+class MyMod {
+public:
+    static MyMod& getInstance() {
+        static MyMod instance;
+        return instance;
+    }
+    MyMod(const MyMod&) = delete;
+    MyMod& operator=(const MyMod&) = delete;
+
+    ll::mod::NativeMod& getSelf() { return mSelf; }
+    ll::io::Logger& getLogger() { return mLogger; }
+
+    bool load() {
+        getLogger().info("RetainXP loading...");
+        return true;
+    }
+    bool enable() {
+        getLogger().info("RetainXP enabling...");
+        auto& eventBus = ll::event::EventBus::getInstance();
+
+        mPlayerDieListener = eventBus.emplaceListener<ll::event::PlayerDieEvent>(onPlayerDie);
+        mPlayerRespawnListener = eventBus.emplaceListener<ll::event::PlayerRespawnEvent>(onPlayerRespawn);
+        
+        return true;
+    }
+    bool disable() {
+        getLogger().info("RetainXP disabling...");
+        auto& eventBus = ll::event::EventBus::getInstance();
+
+        eventBus.removeListener(mPlayerDieListener);
+        eventBus.removeListener(mPlayerRespawnListener);
+
+        gStoredTotalExperience.clear();
+        return true;
+    }
+
+private:
+    MyMod() : mSelf(*ll::mod::NativeMod::current()), mLogger(mSelf.getLogger()) {}
+
+    ll::mod::NativeMod& mSelf;
+    ll::io::Logger&     mLogger;
+    ll::event::ListenerPtr mPlayerDieListener;
+    ll::event::ListenerPtr mPlayerRespawnListener;
+};
+
 
 } // namespace my_mod
 
-
-extern "C" {
-    _declspec(dllexport) bool ll_load() { 
-        return my_mod::MyMod::getInstance().load();
-    }
-    _declspec(dllexport) bool ll_enable() { 
-        return my_mod::MyMod::getInstance().enable();
-    }
-    _declspec(dllexport) bool ll_disable() { 
-        return my_mod::MyMod::getInstance().disable();
-    }
-}
+LL_REGISTER_MOD(my_mod::MyMod, my_mod::MyMod::getInstance());
