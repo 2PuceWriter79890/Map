@@ -36,7 +36,7 @@ private:
     ll::event::ListenerPtr mPlayerDieListener;
     ll::event::ListenerPtr mPlayerRespawnListener;
 
-    std::map<std::string, std::pair<int, float>> mStoredExperience;
+    std::map<std::string, int> mStoredExperience;
 };
 
 }
