@@ -1,51 +1,104 @@
 #include "mod/MyMod.h"
 #include "mod/config.h"
 
-#include <ll/api/mod/NativeMod.h>
+#include "ll/api/event/EventBus.h"
+#include "ll/api/event/EventId.h"
+#include "ll/api/event/player/PlayerDieEvent.h"
+#include "ll/api/event/player/PlayerRespawnEvent.h"
+#include "mc/world/actor/player/Player.h"
+#include "mc/world/attribute/AttributeInstance.h"
+#include "mc/world/attribute/SharedAttributes.h"
 
-#include <fstream>
-#include <iomanip>
-#include <nlohmann/json.hpp>
+#include <cstdio> // printf
 
-using json = nlohmann::json;
+namespace my_mod {
 
-std::set<std::string> gAllowedPlayers;
+MyMod& MyMod::getInstance() {
+    static MyMod instance;
+    return instance;
+}
 
-void loadAndCreateDefaultConfig(ll::mod::NativeMod& self) {
-    auto& logger = my_mod::MyMod::getInstance().getLogger();
+bool MyMod::load() {
+    return true;
+}
+
+bool MyMod::enable() {
+    loadAndCreateDefaultConfig(getSelf());
     
-    auto configPath = self.getModDir() / "config.json";
+    auto& eventBus = ll::event::EventBus::getInstance();
+
+    mPlayerDieListener = ll::event::Listener<ll::event::PlayerDieEvent>::create(
+        [this](ll::event::PlayerDieEvent& event) {
+            auto& player = event.self();
+            
+            if (gAllowedPlayers.count(player.getRealName())) {
+                auto const& levelAttribute = player.getAttribute(Player::LEVEL());
+                auto const& expAttribute = player.getAttribute(Player::EXPERIENCE());
+
+                int level = static_cast<int>(levelAttribute.mCurrentValue);
+                float progress = expAttribute.mCurrentValue;
+
+                mStoredExperience[player.getUuid().asString()] = {level, progress};
+
+                const_cast<AttributeInstance&>(levelAttribute).mCurrentValue = 0;
+                const_cast<AttributeInstance&>(expAttribute).mCurrentValue = 0.0f;
+            }
+            return true;
+        }
+    );
+
+    mPlayerRespawnListener = ll::event::Listener<ll::event::PlayerRespawnEvent>::create(
+        [this](ll::event::PlayerRespawnEvent& event) {
+            auto& player = event.self();
+            auto uuidStr = player.getUuid().asString();
+
+            auto it = mStoredExperience.find(uuidStr);
+            if (it != mStoredExperience.end()) {
+                const auto& [level, progress] = it->second;
+
+                player.addLevels(level);
+                auto& expAttribute = const_cast<AttributeInstance&>(player.getAttribute(Player::EXPERIENCE()));
+                expAttribute.mCurrentValue = progress;
+                
+                mStoredExperience.erase(it);
+            }
+            return true;
+        }
+    );
+
+    eventBus.addListener(mPlayerDieListener, ll::event::getEventId<ll::event::PlayerDieEvent>);
+    eventBus.addListener(mPlayerRespawnListener, ll::event::getEventId<ll::event::PlayerRespawnEvent>);
     
-    logger.info("Checking for config file at: \"{}\"", configPath.string());
+    return true;
+}
 
-    std::ifstream file(configPath);
-    if (!file.is_open()) {
-        logger.warn("Config file not found. Creating default config...");
-        
-        json defaultConfig = {
-            {"playersWithKeepExp", {"Steve", "Alex"}}
-        };
+bool MyMod::disable() {
+    auto& eventBus = ll::event::EventBus::getInstance();
 
-        std::ofstream outFile(configPath);
-        if (outFile.is_open()) {
-            outFile << std::setw(4) << defaultConfig << std::endl;
-            logger.info("Default config file created successfully.");
-        } else {
-            logger.error("Failed to create config file!");
-        }
-        
-        gAllowedPlayers = {"Steve", "Alex"};
-        return;
+    eventBus.removeListener(mPlayerDieListener);
+    eventBus.removeListener(mPlayerRespawnListener);
+
+    mStoredExperience.clear();
+
+    return true;
+}
+
+} // namespace my_mod
+
+
+#include "MyMod.h"
+
+extern "C" {
+    _declspec(dllexport) bool ll_load() {
+        printf("[KeepExperience DEBUG] ll_load CALLED!\n");
+        return my_mod::MyMod::getInstance().load();
     }
-
-    logger.info("Config file found, loading players...");
-    json configJson;
-    file >> configJson;
-
-    if (configJson.contains("playersWithKeepExp") && configJson["playersWithKeepExp"].is_array()) {
-        for (const auto& name : configJson["playersWithKeepExp"]) {
-            gAllowedPlayers.insert(name.get<std::string>());
-        }
+    _declspec(dllexport) bool ll_enable() {
+        printf("[KeepExperience DEBUG] ll_enable CALLED!\n");
+        return my_mod::MyMod::getInstance().enable();
     }
-    logger.info("Loaded {} player(s) into the whitelist.", gAllowedPlayers.size());
+    _declspec(dllexport) bool ll_disable() {
+        printf("[KeepExperience DEBUG] ll_disable CALLED!\n");
+        return my_mod::MyMod::getInstance().disable();
+    }
 }

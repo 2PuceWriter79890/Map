@@ -21,7 +21,6 @@ public:
     MyMod& operator=(MyMod&&) = delete;
 
     [[nodiscard]] ll::mod::NativeMod& getSelf() const { return mSelf; }
-    
     [[nodiscard]] ll::io::Logger& getLogger() const { return mLogger; }
 
     bool load();
